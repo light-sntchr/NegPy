@@ -326,7 +326,7 @@ def test_calibrate_aborts_as_over_at_the_probe_when_minimum_exposure_clips():
     # unreachable → abort at the probe ("over"), symmetric to the under case.
     light, cam = FakeLight(), FakeCamera(start="1/250")
     with pytest.raises(CalibrationExposureError) as e:
-        _service(light, cam, k_scale=3000.0).calibrate(Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw", start_shutter="1/250")
+        _service(light, cam, k_scale=24000.0).calibrate(Roi(0, 0, 1, 1), "/tmp/_negpy_cal.raw", start_shutter="1/250")
     assert e.value.status == "over" and e.value.channel == "R"
     assert not any(g or b for _r, g, b in light.history), "aborted at R's probe — G/B must never light"
 
@@ -337,16 +337,16 @@ def test_deep_over_exposure_from_the_default_start_never_exhausts_the_probe():
     # opposite of what is happening. Both cases below did exactly that with the old 8-step budget.
     #
     # ~8 stops over (manual f/1.4 lens the body can't report, no film in the holder): within the
-    # ladder's ~9-stop reach below the start, so with enough steps it CALIBRATES, on target.
+    # ladder's reach below the start, so with enough steps it CALIBRATES, on target.
     light, cam = FakeLight(), FakeCamera()
     result = _calibrate(_service(light, cam, k_scale=300.0))
     T = target_signal()
     assert all(abs(ch.signal - T) <= 0.06 * T for ch in result.channels.values())
-    # ~11.6 stops over: beyond even minimum exposure — the clean "over" abort, never the
+    # ~14.6 stops over: beyond even minimum exposure — the clean "over" abort, never the
     # misleading no-signal RuntimeError.
     light, cam = FakeLight(), FakeCamera()
     with pytest.raises(CalibrationExposureError) as e:
-        _calibrate(_service(light, cam, k_scale=3000.0))
+        _calibrate(_service(light, cam, k_scale=24000.0))
     assert e.value.status == "over"
 
 

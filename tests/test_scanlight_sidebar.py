@@ -1181,9 +1181,9 @@ def test_available_shutters_drops_unparseable_labels_from_any_body(monkeypatch):
 
 def test_available_shutters_clamps_to_the_solver_ladder_at_both_ends(monkeypatch):
     # This per-body ladder overrides the built-in one, so every limit the solver relies on must hold
-    # here too. The floor is the PWM-banding guard: the Scanlight dims at 40 kHz, so a 1/250 s frame
-    # integrates ~160 pulses while a body's 1/8000 s catches ~5 and meters noise. Bodies publish down
-    # to 1/8000, so without this clamp the probe could halve its way there and poison k.
+    # here too. The floor bounds the PWM banding: the Scanlight dims at 40 kHz, so a 1/2000 s frame
+    # still integrates enough pulses to average, while a body's 1/8000 s catches a handful and meters
+    # noise. Bodies publish down to 1/8000, so without this clamp the probe halves its way there.
     from negpy.services.capture.calibration import SHUTTER_CANDIDATES, shutter_seconds
 
     w = _sidebar()
@@ -1194,8 +1194,9 @@ def test_available_shutters_clamps_to_the_solver_ladder_at_both_ends(monkeypatch
             "shutter": {
                 "options": [
                     {"label": "1/8000"},  # far below the solver's floor → dropped (PWM banding)
-                    {"label": "1/1000"},  # still faster than the ladder's floor → dropped
-                    {"label": "1/250"},  # exactly the floor → kept
+                    {"label": "1/2000"},  # exactly the floor → kept
+                    {"label": "1/1000"},  # inside the ladder → kept
+                    {"label": "1/250"},
                     {"label": "1/60"},
                     {"label": "2"},  # exactly the ceiling → kept
                     {"label": "4"},  # beyond the ceiling → dropped
@@ -1203,11 +1204,11 @@ def test_available_shutters_clamps_to_the_solver_ladder_at_both_ends(monkeypatch
             }
         },
     )
-    assert w._available_shutters() == ("1/250", "1/60", "2")
+    assert w._available_shutters() == ("1/2000", "1/1000", "1/250", "1/60", "2")
     # Bounds are derived from the solver's ladder, never restated — extending SHUTTER_CANDIDATES
     # must widen this automatically, or the two silently disagree depending on whether live view
     # published a ladder.
-    assert shutter_seconds(SHUTTER_CANDIDATES[0]) <= shutter_seconds("1/250")
+    assert shutter_seconds(SHUTTER_CANDIDATES[0]) <= shutter_seconds("1/2000")
     assert shutter_seconds("2") <= shutter_seconds(SHUTTER_CANDIDATES[-1])
 
 

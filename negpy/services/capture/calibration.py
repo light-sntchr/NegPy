@@ -70,15 +70,26 @@ MAX_CLIP_FRACTION = 0.002
 MAX_TARGET_UNDER_FRACTION = 0.2
 # Probe budget = the whole reachable range, so the loop can only end by resolving, never
 # by exhaustion. Exhaustion would mislabel a blinding over-exposure as "no signal". Worst
-# case is ~9 shutter halvings + 3 LED halvings + the final measurement.
-_MAX_PROBE_STEPS = 14
+# case is the ladder's ~12 shutter halvings + 3 LED halvings + the final measurement, so
+# this grows whenever SHUTTER_CANDIDATES gets wider.
+_MAX_PROBE_STEPS = 17
 _MAX_CLIP_GUARD_STEPS = 12  # LED-down steps (PWM_MAX→PWM_MIN at 0.85×) — keeps captures hard-bounded
 
 # Shutter ladder, fastest first (third-stops). Reaches 2 s so a closed-down aperture can
-# still hit target on the dim channel; dark current at ISO 100 is negligible there.
-# Nothing faster than 1/250 s: PWM-LED banding. The body's own ladder wins when live view
-# has published it.
+# still hit target on the dim channel; dark current at ISO 100 is negligible there. Below
+# 1/250 s an exposure integrates too few PWM cycles to average out and the light varies
+# frame to frame; those rungs are the accepted cost of metering a lamp too bright to fit
+# otherwise. The body's own ladder wins when live view has published it.
 SHUTTER_CANDIDATES: tuple[str, ...] = (
+    "1/2000",
+    "1/1600",
+    "1/1250",
+    "1/1000",
+    "1/800",
+    "1/640",
+    "1/500",
+    "1/400",
+    "1/320",
     "1/250",
     "1/200",
     "1/160",
