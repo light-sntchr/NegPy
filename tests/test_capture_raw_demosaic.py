@@ -29,18 +29,18 @@ class _FullRoi:
 
 
 class _FakeBayer:
-    """A uniform base patch on a Bayer sensor, with a controllable white level."""
+    """A uniform base patch on a Bayer sensor, with a controllable white level and ceiling."""
 
     color_desc = b"RGBG"
 
-    def __init__(self, white_level, base=3000.0, sigma=4.0, clipped_rows=0):
+    def __init__(self, white_level, base=3000.0, sigma=4.0, clipped_rows=0, clip_at=16383, size=64):
         self.white_level = white_level
         rng = np.random.default_rng(7)
-        img = base + rng.normal(0.0, sigma, (64, 64))
+        img = base + rng.normal(0.0, sigma, (size, size))
         if clipped_rows:  # pin some photosites to the ceiling — genuine clipping
-            img[:clipped_rows] = 16383
+            img[:clipped_rows] = clip_at
         self.raw_image_visible = img.astype(np.uint16)
-        self.raw_colors_visible = np.zeros((64, 64), dtype=np.uint8)  # every site is "R"
+        self.raw_colors_visible = np.zeros((size, size), dtype=np.uint8)  # every site is "R"
 
     def __enter__(self):
         return self
@@ -90,3 +90,26 @@ def test_raw_clip_still_catches_genuine_clipping(monkeypatch):
     # And a clean frame with a proper white level reads ~0, not noise-tail false positives.
     monkeypatch.setattr(rawpy, "imread", lambda _path: _FakeBayer(white_level=16383))
     assert raw_channel_clip_fraction("x.ARW", 0, _FullRoi()) == 0.0
+
+
+def test_raw_clip_catches_a_sensor_that_saturates_below_its_white_level(monkeypatch):
+    # A body can pin its photosites short of the white level it publishes. Every threshold derived
+    # from that number then reads 0 % on a channel that is solidly saturated, and the calibration
+    # saves a blown preset as on-target.
+    monkeypatch.setattr(rawpy, "imread", lambda _path: _FakeBayer(white_level=16383, base=14000.0, clipped_rows=8, clip_at=15778))
+    assert raw_channel_clip_fraction("x.ARW", 0, _FullRoi()) > 0.1
+
+
+def test_raw_clip_does_not_call_a_small_clean_roi_saturated(monkeypatch):
+    # The ROI maximum is present by definition, so a band at the ceiling always holds at least one
+    # photosite: on a small patch that alone is 1/n, already over the caller's clip budget, and it
+    # would abort a run that clips nowhere. Density against the band below is what separates them.
+    monkeypatch.setattr(rawpy, "imread", lambda _path: _FakeBayer(white_level=16383, base=14700.0, sigma=120.0, size=24))
+    assert raw_channel_clip_fraction("x.ARW", 0, _FullRoi()) == 0.0
+
+
+def test_raw_clip_does_not_read_a_bright_clean_base_as_saturated(monkeypatch):
+    # The ceiling is read off the data, so an ETTR base sitting just under saturation is the case
+    # that must not false-positive: its own maximum is a noise excursion held by a few photosites.
+    monkeypatch.setattr(rawpy, "imread", lambda _path: _FakeBayer(white_level=16383, base=15000.0, sigma=120.0, size=256))
+    assert raw_channel_clip_fraction("x.ARW", 0, _FullRoi()) < 0.002

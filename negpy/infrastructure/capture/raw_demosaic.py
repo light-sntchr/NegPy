@@ -70,10 +70,10 @@ def raw_channel_clip_fraction(path: str, channel_index: int, roi, saturation_mar
         img = raw.raw_image_visible
         colors = raw.raw_colors_visible
         # No white level means no raw refinement, though the demosaiced clip guard still runs.
-        # Never guess img.max() instead: that is an image-dependent reference, the same failure
-        # class as adjust_maximum_thr, and on a uniform base the guess sits inside the noise. The
-        # quieter the sensor, the more photosites land within `saturation_margin` of their own
-        # maximum and read as heavy clipping on a frame that clips nowhere.
+        # A frame's own maximum is never a level reference: on a uniform base it sits inside the
+        # noise, so a fixed margin below it swallows most of a frame that clips nowhere (the
+        # adjust_maximum_thr failure class). _plateau_clip_fraction reads that maximum as a count
+        # instead, which noise leaves to a handful of photosites and saturation piles onto.
         white = int(raw.white_level or 0)
         if white <= 0:
             return 0.0
@@ -88,5 +88,30 @@ def raw_channel_clip_fraction(path: str, channel_index: int, roi, saturation_mar
         mask = np.isin(colors[y0:y1, x0:x1], wanted)
         if not mask.any():
             return 0.0
+        values = sub_img[mask]
         threshold = max(0, white - saturation_margin)
-        return float(np.mean(sub_img[mask] >= threshold))
+        by_white_level = float(np.mean(values >= threshold))
+        return max(by_white_level, _plateau_clip_fraction(values, white))
+
+
+# A plateau is a pile, never one photosite. The ROI maximum is present by definition, so
+# without a floor a small ROI reports 1/n clipped — already over the caller's budget.
+_MIN_PLATEAU_SITES = 4
+
+
+def _plateau_clip_fraction(values: np.ndarray, white: int, tail: int = 8) -> float:
+    """Fraction of photosites pinned on a saturation plateau, found without the white level.
+
+    A sensor can saturate below the white level its metadata publishes, and no threshold derived
+    from that number sees such clipping at all. Saturation has a shape instead: photosites pile up
+    against the highest level they can reach, where an exposed surface's histogram is still falling.
+    Only a band denser than the wider band below it counts, so noise near the top cannot qualify.
+    """
+    top = int(values.max())
+    if top * 2 < white:  # a dark frame's narrow histogram is not a ceiling
+        return 0.0
+    pile = int(np.count_nonzero(values >= top - tail))
+    below = int(np.count_nonzero((values >= top - 5 * tail) & (values < top - tail)))
+    if pile <= below or pile < _MIN_PLATEAU_SITES:
+        return 0.0
+    return pile / values.size
